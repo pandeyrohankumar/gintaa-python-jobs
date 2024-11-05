@@ -1,0 +1,27 @@
+version: 2
+updates:
+
+  # Maintain dependencies for maven
+  - package-ecosystem: "pip" 
+    # Files stored in repository root
+    directory: "/" 
+    schedule:
+      # Check for updates managed by Maven every once a week    
+      interval: "weekly"
+      # Check for updates on Sundays
+      day: "sunday"
+      # Check for updates at 11 am
+      time: "11:00"
+      # Use Indian standard time
+      timezone: "Asia/Kolkata"
+    # Allow up to 10 open pull requests for maven dependencies
+    open-pull-requests-limit: 10
+    pull-request-branch-name:
+      # Separate sections of the branch name with a hyphen
+      separator: "-"
+    # Disable rebasing for pull requests
+    rebase-strategy: "disabled"
+    # Add reviewers
+    reviewers:
+    - "gautamr-gintaa"
+      

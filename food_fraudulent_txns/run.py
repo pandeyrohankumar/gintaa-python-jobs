@@ -1,0 +1,2 @@
+from fraud_transaction_processor import FraudTransactionProcessor
+print(FraudTransactionProcessor.fetch_fraud_write_db())

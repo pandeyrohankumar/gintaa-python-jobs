@@ -1,0 +1,340 @@
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - beta-*
+ 
+name: GCR -> Cloud Run - beta
+
+env:
+  GCR_PROJECT_ID: ${{ secrets.GCP_PROJECT_GLOBAL }}
+  GCR_WIF_PROVIDER: ${{ secrets.WIF_PROVIDER_GLOBAL }}
+  GCR_WIF_SA_MS: ${{ secrets.WIF_SA_CRUN_GLOBAL }}
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_BETA }}
+  IMAGE: gintaa-analytics
+  GCP_ENVIRON: beta
+  ENVIRON: beta
+
+jobs:
+  gcr_push:
+    name: GCR Push Workflow 
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      actions: read
+    environment: beta
+    steps:
+    - uses: actions/checkout@v3
+    - uses: 'google-github-actions/auth@v2'
+      with:
+        workload_identity_provider: ${{ env.GCR_WIF_PROVIDER }}
+        service_account: ${{ env.GCR_WIF_SA_MS }}
+        project_id: ${{ env.GCR_PROJECT_ID }}
+    - name: Generate build ID
+      id: prep
+      run: |
+          branch=${ENVIRON}
+          sha=${GITHUB_SHA::8}
+          ts=$(date +%Y%m%d%H%M%S)
+          echo "::set-output name=BUILD_ID::${branch}-${ts}-${sha}"
+    - name: Build docker image   
+      run : |
+        gcloud builds submit --tag=gcr.io/$GCR_PROJECT_ID/$IMAGE/listing_score .
+  run_deploy:
+    name: Deploy Cloud job
+    permissions:
+      id-token: write
+      contents: read
+      actions: read
+    runs-on: ubuntu-latest
+    environment: beta
+    needs: gcr_push
+    steps:
+    - uses: actions/checkout@v3
+    - uses: 'google-github-actions/auth@v2'
+      with:
+        workload_identity_provider: 'projects/502790464629/locations/global/workloadIdentityPools/gintaa-wif-pool-beta/providers/gintaa-wif-gh-provider-beta'
+        service_account: 'gintaa-ci-analytics-sa-beta@gintaa-cloud-beta.iam.gserviceaccount.com'
+        project_id: ${{ env.PROJECT_ID }}
+    - name: Generate build ID
+      id: prep
+      run: |
+          branch=${ENVIRON}
+          sha=${GITHUB_SHA::8}
+          ts=$(date +%Y%m%d%H%M%S)
+          echo "::set-output name=BUILD_ID::${branch}-${ts}-${sha}"
+    # - name: listing-score
+    #   run : |
+    #     gcloud beta run jobs update gintaa-listing-score \
+    #     --image gcr.io/$GCR_PROJECT_ID/$IMAGE/listing_score:latest \
+    #     --region asia-south1 \
+    #     --vpc-connector gintaa-srv-cont-$ENVIRON \
+    #     --set-secrets STATISTICS_DB_USER=gintaa-statistics-postgres-user-$GCP_ENVIRON:latest \
+    #     --set-secrets STATISTICS_DB_PASSWORD=gintaa-statistics-postgres-password-$GCP_ENVIRON:latest \
+    #     --set-env-vars STATISTICS_DB_HOST=10.113.0.2 \
+    #     --set-env-vars MONGO_HOST=cluster0-pri.ylfl7.mongodb.net \
+    #     --set-env-vars MONGO_PORT=27017 \
+    #     --set-secrets MONGO_USER=MONGO_USER:latest \
+    #     --set-secrets MONGO_PASSWORD=MONGO_PASSWORD:latest \
+    #     --set-secrets MONGO_DATABASE=MONGO_DATABASE:latest \
+    #     --set-env-vars PROFILE=$ENVIRON
+    # - name: seller-score
+    #   run : |
+    #     gcloud beta run jobs update gintaa-seller-score \
+    #     --image gcr.io/$GCR_PROJECT_ID/$IMAGE/listing_score:latest \
+    #     --command python --args seller_score/seller_score.py \
+    #     --region asia-south1 \
+    #     --vpc-connector gintaa-srv-cont-$ENVIRON \
+    #     --set-secrets STAT_DEAL_POSTGRESQL_DATABASE=gintaa-deals-postgres-database-$GCP_ENVIRON:latest \
+    #     --set-secrets STAT_DEAL_POSTGRESQL_USERNAME=gintaa-deals-postgres-user-$GCP_ENVIRON:latest \
+    #     --set-secrets STAT_DEAL_POSTGRESQL_PASSWORD=gintaa-deals-postgres-password-$GCP_ENVIRON:latest \
+    #     --set-env-vars STAT_DEAL_POSTGRESQL_HOST=172.25.0.2 \
+    #     --set-env-vars STAT_DEAL_POSTGRESQL_PORT=5432 \
+    #     --set-env-vars STAT_POSTGRESQL_DATABASE=statistics \
+    #     --set-secrets STAT_POSTGRESQL_USERNAME=gintaa-statistics-postgres-user-$GCP_ENVIRON:latest \
+    #     --set-secrets STAT_POSTGRESQL_PASSWORD=gintaa-statistics-postgres-password-$GCP_ENVIRON:latest \
+    #     --set-env-vars STAT_POSTGRESQL_HOST=10.113.0.2 \
+    #     --set-env-vars STAT_POSTGRESQL_PORT=5432 \
+    #     --set-env-vars PROFILE=$ENVIRON
+    # - name: search-view-reco
+    #   run : |
+    #     gcloud beta run jobs update gintaa-search-view-reco \
+    #     --image gcr.io/$GCR_PROJECT_ID/$IMAGE/listing_score:latest \
+    #     --command python --args view_with_search_reco/reco.py \
+    #     --region asia-south1 \
+    #     --vpc-connector gintaa-srv-cont-$ENVIRON \
+    #     --set-env-vars STAT_POSTGRESQL_DATABASE=statistics \
+    #     --set-secrets STAT_POSTGRESQL_USERNAME=gintaa-statistics-postgres-user-$GCP_ENVIRON:latest \
+    #     --set-secrets STAT_POSTGRESQL_PASSWORD=gintaa-statistics-postgres-password-$GCP_ENVIRON:latest \
+    #     --set-env-vars STAT_POSTGRESQL_HOST=10.113.0.2 \
+    #     --set-env-vars STAT_POSTGRESQL_PORT=5432 \
+    #     --set-secrets BIG_QUERY_KEY=gintaa-big-query-key-$GCP_ENVIRON:latest \
+    #     --set-env-vars BIGQUERY_FIREBASE_EVENTS_TABLE_NAME=gintaa-cloud-beta.analytics_280288049 \
+    #     --set-env-vars TIME_PERIOD=24 \
+    #     --set-env-vars PROFILE=$ENVIRON \
+    #     --set-env-vars PROJECT_ID=$PROJECT_ID
+    # - name: adv-impr-count
+    #   run : |
+    #     gcloud beta run jobs update gintaa-adv-impr-count \
+    #     --image gcr.io/$GCR_PROJECT_ID/$IMAGE/listing_score:latest \
+    #     --command python --args adv_impression_count\impr.py \
+    #     --region asia-south1 \
+    #     --vpc-connector gintaa-srv-cont-$ENVIRON \
+    #     --set-env-vars STAT_POSTGRESQL_DATABASE=statistics \
+    #     --set-secrets STAT_POSTGRESQL_USERNAME=gintaa-statistics-postgres-user-$GCP_ENVIRON:latest \
+    #     --set-secrets STAT_POSTGRESQL_PASSWORD=gintaa-statistics-postgres-password-$GCP_ENVIRON:latest \
+    #     --set-env-vars STAT_POSTGRESQL_HOST=10.113.0.2 \
+    #     --set-env-vars STAT_POSTGRESQL_PORT=5432 \
+    #     --set-secrets BIG_QUERY_KEY=gintaa-big-query-key-$GCP_ENVIRON:latest \
+    #     --set-env-vars BIGQUERY_FIREBASE_EVENTS_TABLE_NAME=gintaa-cloud-beta.analytics_280288049 \
+    #     --set-env-vars PROFILE=$ENVIRON \
+    #     --set-env-vars PROJECT_ID=$PROJECT_ID
+    # - name: fraudulent-transaction
+    #   run : |
+    #     gcloud beta run jobs update gintaa-fraudulent-transaction \
+    #     --image gcr.io/$GCR_PROJECT_ID/$IMAGE/listing_score:latest \
+    #     --command python --args fraudulent_txns/run.py \
+    #     --region asia-south1 \
+    #     --vpc-connector gintaa-srv-cont-$ENVIRON \
+    #     --set-secrets STAT_DEAL_POSTGRESQL_DATABASE=gintaa-deals-postgres-database-$GCP_ENVIRON:latest \
+    #     --set-secrets STAT_DEAL_POSTGRESQL_USERNAME=gintaa-deals-postgres-user-$GCP_ENVIRON:latest \
+    #     --set-secrets STAT_DEAL_POSTGRESQL_PASSWORD=gintaa-deals-postgres-password-$GCP_ENVIRON:latest \
+    #     --set-env-vars STAT_DEAL_POSTGRESQL_HOST=172.25.0.2 \
+    #     --set-env-vars STAT_DEAL_POSTGRESQL_PORT=5432 \
+    #     --set-env-vars PROFILE=$ENVIRON
+    # - name: popularity-score
+    #   run : |
+    #     gcloud beta run jobs update popularity-score \
+    #     --image gcr.io/$GCR_PROJECT_ID/$IMAGE/listing_score:latest \
+    #     --command python --args popularity_score/run.py \
+    #     --region asia-south1 \
+    #     --vpc-connector gintaa-srv-cont-$ENVIRON \
+    #     --set-env-vars STAT_POSTGRESQL_DATABASE=statistics \
+    #     --set-secrets STAT_POSTGRESQL_USERNAME=gintaa-statistics-postgres-user-$GCP_ENVIRON:latest \
+    #     --set-secrets STAT_POSTGRESQL_PASSWORD=gintaa-statistics-postgres-password-$GCP_ENVIRON:latest \
+    #     --set-env-vars STAT_POSTGRESQL_HOST=10.113.0.2 \
+    #     --set-env-vars STAT_POSTGRESQL_PORT=5432 \
+    #     --set-secrets SUBS_POSTGRESQL_DATABASE=gintaa-subscription-postgresql-database-$GCP_ENVIRON:latest \
+    #     --set-secrets SUBS_POSTGRESQL_USERNAME=gintaa-subscription-postgresql-user-$GCP_ENVIRON:latest \
+    #     --set-secrets SUBS_POSTGRESQL_PASSWORD=gintaa-subscription-postgresql-password-$GCP_ENVIRON:latest \
+    #     --set-env-vars SUBS_POSTGRESQL_HOST=10.71.0.2 \
+    #     --set-env-vars SUBS_POSTGRESQL_PORT=5432 \
+    #     --set-env-vars PROFILE=$ENVIRON \
+    - name: restaurant-food-reco
+      run : |
+        gcloud beta run jobs update gintaa-restaurant-food-reco \
+        --image gcr.io/$GCR_PROJECT_ID/$IMAGE/listing_score:latest \
+        --command python --args restaurant_food_reco/run.py \
+        --region asia-south1 \
+        --vpc-connector gintaa-srv-cont-$ENVIRON \
+        --set-env-vars FOOD_ORDER_POSTGRESQL_DATABASE=foodorder \
+        --set-secrets FOOD_ORDER_POSTGRESQL_USERNAME=gintaa-food-order-postgresql-user-$GCP_ENVIRON:latest \
+        --set-secrets FOOD_ORDER_POSTGRESQL_PASSWORD=gintaa-food-order-postgresql-password-$GCP_ENVIRON:latest \
+        --set-env-vars FOOD_ORDER_POSTGRESQL_HOST=10.91.1.3 \
+        --set-env-vars FOOD_ORDER_POSTGRESQL_PORT=5432 \
+        --set-env-vars FOOD_LISTING_POSTGRESQL_DATABASE=foodlisting \
+        --set-secrets FOOD_LISTING_POSTGRESQL_USERNAME=gintaa-food-listing-postgresql-user-$GCP_ENVIRON:latest \
+        --set-secrets FOOD_LISTING_POSTGRESQL_PASSWORD=gintaa-food-listing-postgresql-password-$GCP_ENVIRON:latest \
+        --set-env-vars FOOD_LISTING_POSTGRESQL_HOST=10.91.0.3 \
+        --set-env-vars FOOD_LISTING_POSTGRESQL_PORT=5432 \
+        --set-env-vars NUMBER_OF_FOOD=5 \
+        --set-env-vars PROFILE=$ENVIRON \
+        --set-env-vars PROJECT_ID=$PROJECT_ID
+    - name: restaurant-health-index
+      run : |
+        gcloud beta run jobs update gintaa-restaurant-health-index \
+        --image gcr.io/$GCR_PROJECT_ID/$IMAGE/listing_score:latest \
+        --command python --args RHI/run.py \
+        --region asia-south1 \
+        --vpc-connector gintaa-srv-cont-$ENVIRON \
+        --set-env-vars FOOD_ORDER_POSTGRESQL_DATABASE=foodorder \
+        --set-secrets FOOD_ORDER_POSTGRESQL_USERNAME=gintaa-food-order-postgresql-user-$GCP_ENVIRON:latest \
+        --set-secrets FOOD_ORDER_POSTGRESQL_PASSWORD=gintaa-food-order-postgresql-password-$GCP_ENVIRON:latest \
+        --set-env-vars FOOD_ORDER_POSTGRESQL_HOST=10.91.1.3 \
+        --set-env-vars FOOD_ORDER_POSTGRESQL_PORT=5432 \
+        --set-env-vars FOOD_LISTING_POSTGRESQL_DATABASE=foodlisting \
+        --set-secrets FOOD_LISTING_POSTGRESQL_USERNAME=gintaa-food-listing-postgresql-user-$GCP_ENVIRON:latest \
+        --set-secrets FOOD_LISTING_POSTGRESQL_PASSWORD=gintaa-food-listing-postgresql-password-$GCP_ENVIRON:latest \
+        --set-env-vars FOOD_LISTING_POSTGRESQL_HOST=10.91.0.3 \
+        --set-env-vars FOOD_LISTING_POSTGRESQL_PORT=5432 \
+        --set-secrets BIG_QUERY_KEY=gintaa-big-query-key-$GCP_ENVIRON:latest \
+        --set-env-vars BIGQUERY_RHI_TABLE_NAME=gintaa-cloud-beta.restaurant_health_index.restaurant_health_index \
+        --set-env-vars TIME_PERIOD=163 \
+        --set-env-vars PROFILE=$ENVIRON \
+        --set-env-vars PROJECT_ID=$PROJECT_ID
+    - name: restaurant-top-selling-foods
+      run : |
+        gcloud beta run jobs update gintaa-restaurant-top-selling-foods \
+        --image gcr.io/$GCR_PROJECT_ID/$IMAGE/listing_score:latest \
+        --command python --args restaurant_top_selling_foods/run.py \
+        --region asia-south1 \
+        --vpc-connector gintaa-srv-cont-$ENVIRON \
+        --set-env-vars FOOD_ORDER_POSTGRESQL_DATABASE=foodorder \
+        --set-secrets FOOD_ORDER_POSTGRESQL_USERNAME=gintaa-food-order-postgresql-user-$GCP_ENVIRON:latest \
+        --set-secrets FOOD_ORDER_POSTGRESQL_PASSWORD=gintaa-food-order-postgresql-password-$GCP_ENVIRON:latest \
+        --set-env-vars FOOD_ORDER_POSTGRESQL_HOST=10.91.1.3 \
+        --set-env-vars FOOD_ORDER_POSTGRESQL_PORT=5432 \
+        --set-env-vars FOOD_LISTING_POSTGRESQL_DATABASE=foodlisting \
+        --set-secrets FOOD_LISTING_POSTGRESQL_USERNAME=gintaa-food-listing-postgresql-user-$GCP_ENVIRON:latest \
+        --set-secrets FOOD_LISTING_POSTGRESQL_PASSWORD=gintaa-food-listing-postgresql-password-$GCP_ENVIRON:latest \
+        --set-env-vars FOOD_LISTING_POSTGRESQL_HOST=10.91.0.3 \
+        --set-env-vars FOOD_LISTING_POSTGRESQL_PORT=5432 \
+        --set-env-vars STAT_POSTGRESQL_DATABASE=statistics \
+        --set-secrets STAT_POSTGRESQL_USERNAME=gintaa-statistics-postgres-user-$GCP_ENVIRON:latest \
+        --set-secrets STAT_POSTGRESQL_PASSWORD=gintaa-statistics-postgres-password-$GCP_ENVIRON:latest \
+        --set-env-vars STAT_POSTGRESQL_HOST=10.113.0.2 \
+        --set-env-vars STAT_POSTGRESQL_PORT=5432 \
+        --set-env-vars PROFILE=$ENVIRON \
+        --set-env-vars PROJECT_ID=$PROJECT_ID
+    - name: food-fraudulent-txns
+      run : |
+        gcloud beta run jobs update gintaa-food-fraudulent-txns \
+        --image gcr.io/$GCR_PROJECT_ID/$IMAGE/listing_score:latest \
+        --command python --args food_fraudulent_txns/run.py \
+        --region asia-south1 \
+        --vpc-connector gintaa-srv-cont-$ENVIRON \
+        --set-env-vars FOOD_ORDER_POSTGRESQL_DATABASE=foodorder \
+        --set-secrets FOOD_ORDER_POSTGRESQL_USERNAME=gintaa-food-order-postgresql-user-$GCP_ENVIRON:latest \
+        --set-secrets FOOD_ORDER_POSTGRESQL_PASSWORD=gintaa-food-order-postgresql-password-$GCP_ENVIRON:latest \
+        --set-env-vars FOOD_ORDER_POSTGRESQL_HOST=10.91.1.3 \
+        --set-env-vars FOOD_ORDER_POSTGRESQL_PORT=5432 \
+        --set-env-vars GINTAA_NUMBER_OF_DAYS=6 \
+        --set-env-vars GINTAA_USER_HOST=https://beta.api.gintaa.com \
+        --set-secrets API_KEY=gintaa-api-key-$GCP_ENVIRON:latest \
+        --set-env-vars PROJECT_ID=$PROJECT_ID
+    # - name: merge-query-job
+    #   run : |
+    #     gcloud beta run jobs update gintaa-merge-query-job \
+    #     --image gcr.io/$GCR_PROJECT_ID/$IMAGE/listing_score:latest \
+    #     --command python --args merge_query_job/run.py \
+    #     --region asia-south1 \
+    #     --vpc-connector gintaa-srv-cont-$ENVIRON \
+    #     --set-secrets BIG_QUERY_KEY=gintaa-big-query-key-$GCP_ENVIRON:latest \
+    #     --set-env-vars TIME_PERIOD=3 \
+    #     --set-env-vars PROJECT_ID=$PROJECT_ID \
+    #     --set-env-vars PROFILE=$ENVIRON
+    - name: rid-pos-mongo-bigquery-job
+      run : |
+        gcloud beta run jobs update gintaa-rid-pos-mongo-bigquery-job \
+        --image gcr.io/$GCR_PROJECT_ID/$IMAGE/listing_score:latest \
+        --command python --args mongo_to_bigquery_rid_pos/run.py \
+        --region asia-south1 \
+        --vpc-connector gintaa-srv-cont-$ENVIRON \
+        --set-env-vars REATAURANT_MGMT_MONGO_HOST=cluster0-pri.ylfl7.mongodb.net \
+        --set-env-vars REATAURANT_MGMT_MONGO_PORT=27017 \
+        --set-secrets REATAURANT_MGMT_MONGO_USER=gintaa-rest-mgmt-intg-mongo-user-$GCP_ENVIRON:latest \
+        --set-secrets REATAURANT_MGMT_MONGO_PASSWORD=gintaa-rest-mgmt-intg-mongo-password-$GCP_ENVIRON:latest \
+        --set-secrets REATAURANT_MGMT_MONGO_DATABASE=gintaa-rest-mgmt-intg-mongo-database-$GCP_ENVIRON:latest \
+        --set-secrets BIG_QUERY_KEY=gintaa-big-query-key-$GCP_ENVIRON:latest \
+        --set-env-vars BIGQUERY_TABLE_NAME=gintaa-cloud-beta.restaurant_mgmt_intg_mongo_coll.rid_pos \
+        --set-env-vars PROJECT_ID=$PROJECT_ID \
+        --set-env-vars PROFILE=$ENVIRON
+    - name: food-recommendation-job
+      run : |
+        gcloud beta run jobs update gintaa-food-recommendation-job \
+        --image gcr.io/$GCR_PROJECT_ID/$IMAGE/listing_score:latest \
+        --command python --args food_recommendation/run.py \
+        --region asia-south1 \
+        --vpc-connector gintaa-srv-cont-$ENVIRON \
+        --set-env-vars FOOD_ORDER_POSTGRESQL_DATABASE=foodorder \
+        --set-secrets FOOD_ORDER_POSTGRESQL_USERNAME=gintaa-food-order-postgresql-user-$GCP_ENVIRON:latest \
+        --set-secrets FOOD_ORDER_POSTGRESQL_PASSWORD=gintaa-food-order-postgresql-password-$GCP_ENVIRON:latest \
+        --set-env-vars FOOD_ORDER_POSTGRESQL_HOST=10.91.1.3 \
+        --set-env-vars FOOD_ORDER_POSTGRESQL_PORT=5432 \
+        --set-env-vars FOOD_LISTING_POSTGRESQL_DATABASE=foodlisting \
+        --set-secrets FOOD_LISTING_POSTGRESQL_USERNAME=gintaa-food-listing-postgresql-user-$GCP_ENVIRON:latest \
+        --set-secrets FOOD_LISTING_POSTGRESQL_PASSWORD=gintaa-food-listing-postgresql-password-$GCP_ENVIRON:latest \
+        --set-env-vars FOOD_LISTING_POSTGRESQL_HOST=10.91.0.3 \
+        --set-env-vars FOOD_LISTING_POSTGRESQL_PORT=5432 \
+        --set-env-vars GINTAA_NUMBER_OF_DAYS=200 \
+        --set-env-vars GINTAA_USER_NUMBER_OF_DAYS=200
+    - name: scheduler-custom-notification-job
+      run : |
+        gcloud beta run jobs update gintaa-scheduler-custom-notification-job \
+        --image gcr.io/$GCR_PROJECT_ID/$IMAGE/listing_score:latest \
+        --command python --args scheduler_custom_notification_job/run.py \
+        --region asia-south1 \
+        --vpc-connector gintaa-srv-cont-$ENVIRON \
+        --set-secrets GOOGLE_APPLICATION_KEY=gintaa-big-query-key-$GCP_ENVIRON:latest \
+        --set-env-vars PROJECT=$PROJECT_ID \
+        --set-env-vars SCHEDULER_LOCATION=asia-south1 \
+        --set-env-vars DATE_SHEET_URL='https://docs.google.com/spreadsheets/d/1Obq3eFfuYpZLaIjvfq8hfewncnG-6GbrRn-e9lREN2I/edit?gid=0#gid=0'
+    - name: send-custom-notification
+      run : |
+        gcloud beta run jobs update gintaa-send-custom-notification \
+        --image gcr.io/$GCR_PROJECT_ID/$IMAGE/listing_score:latest \
+        --command python --args send_custom_notification/run.py \
+        --region asia-south1 \
+        --vpc-connector gintaa-srv-cont-$ENVIRON \
+        --set-secrets API_KEY=gintaa-api-key-$GCP_ENVIRON:latest \
+        --set-secrets GOOGLE_APPLICATION_KEY=gintaa-big-query-key-$GCP_ENVIRON:latest \
+        --set-env-vars PROJECT=$PROJECT_ID \
+        --set-env-vars API_LOCATION=asia-south1 \
+        --set-env-vars UID_SHEET_URL='https://docs.google.com/spreadsheets/d/17aw14qFiK0UgAov91TFiGU-kqhcKw2jtYFGctt3XVbQ/edit?gid=0#gid=0' \
+        --set-env-vars DATE_SHEET_URL='https://docs.google.com/spreadsheets/d/1Obq3eFfuYpZLaIjvfq8hfewncnG-6GbrRn-e9lREN2I/edit?gid=0#gid=0'
+    - name: avg-delivery-time-job
+      run : |
+        gcloud beta run jobs update gintaa-avg-delivery-time \
+        --image gcr.io/$GCR_PROJECT_ID/$IMAGE/listing_score:latest \
+        --command python --args avg_delivery_time/run.py \
+        --region asia-south1 \
+        --vpc-connector gintaa-srv-cont-$ENVIRON \
+        --set-env-vars FOOD_ORDER_POSTGRESQL_DATABASE=foodorder \
+        --set-secrets FOOD_ORDER_POSTGRESQL_USERNAME=gintaa-food-order-postgresql-user-$GCP_ENVIRON:latest \
+        --set-secrets FOOD_ORDER_POSTGRESQL_PASSWORD=gintaa-food-order-postgresql-password-$GCP_ENVIRON:latest \
+        --set-env-vars FOOD_ORDER_POSTGRESQL_HOST=10.91.1.3 \
+        --set-env-vars FOOD_ORDER_POSTGRESQL_PORT=5432 \
+        --set-env-vars MONGO_HOST=cluster0-pri.ylfl7.mongodb.net \
+        --set-env-vars MONGO_PORT=27017 \
+        --set-secrets MONGO_USER=MONGO_SEARCH_USER:latest \
+        --set-secrets MONGO_PASSWORD=MONGO_SEARCH_PASSWORD:latest \
+        --set-secrets MONGO_DATABASE=MONGO_SEARCH_DATABASE:latest \
+        --set-env-vars GINTAA_NUMBER_OF_DAYS=200 \
+        --set-env-vars PROFILE=$ENVIRON
+
+    
+#    - name: deploy  
+#      run : |
+ #       gcloud beta run jobs execute list-scor \
+ #       --region asia-southeast1

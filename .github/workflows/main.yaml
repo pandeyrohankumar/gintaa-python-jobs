@@ -1,0 +1,70 @@
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '.github/**'
+      
+name: cloudrun-deploy develop
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_DEV }}
+  IMAGE: gintaa-analytics
+  PROFILE: dev
+
+jobs:
+  setup-build-publish-deploy:
+    name: Setup, Build, Publish, and Deploy
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+
+    # Setup gcloud CLI
+    - uses: google-github-actions/setup-gcloud@master
+      with:
+          project_id: ${{ env.PROJECT_ID }}
+          service_account_key: ${{ secrets.GCP_SA_KEY_DEV }}
+          export_default_credentials: true
+    - run: |-
+        gcloud components install docker-credential-gcr
+        gcloud --quiet auth configure-docker
+    - name: Inject slug/short variables
+      uses: rlespinasse/github-slug-action@v3.x
+    - name: Build docker
+      id: build
+      run: |-
+        GCR_IMAGE=gcr.io/$PROJECT_ID/$IMAGE:dev-${{ env.GITHUB_SHA_SHORT }}
+        gcloud builds submit --tag $GCR_IMAGE
+        echo "::set-output name=image::$GCR_IMAGE"
+    - name: Scan docker image
+      uses: docker://docker.io/aquasec/trivy:latest
+      with:
+          #args: --cache-dir /var/lib/trivy --no-progress --exit-code 1 --severity MEDIUM,HIGH,CRITICAL ${{ steps.build.outputs.image }}
+          args: --cache-dir /var/lib/trivy --no-progress --exit-code 0 --severity MEDIUM,HIGH,CRITICAL ${{ steps.build.outputs.image }}
+    # Push the Docker image to Google Container Registry
+    - name: Publish to GCR
+      run: |-
+        gcloud config set project $PROJECT_ID
+        gcloud config set run/region asia-southeast1
+        gcloud run deploy $IMAGE --image=${{ steps.build.outputs.image }} \
+        --platform managed \
+        --no-allow-unauthenticated \
+        --vpc-connector gintaa-serverless-vpc-dev \
+        --set-env-vars=PROFILE=$PROFILE \
+        --set-env-vars=STATISTICS_DB_USER=${{ secrets.STATISTICS_DB_USER }} \
+        --set-env-vars=STATISTICS_DB_PASSWORD=${{ secrets.STATISTICS_DB_PASSWORD_DEV }} \
+        --set-env-vars=STATISTICS_DB_HOST=${{ secrets.STATISTICS_DB_HOST_DEV }}
+    - name: Notify Slack
+      uses: asconsoft/action-slack@v4.0.1
+      with:
+        channel: '#deployment'
+        if_mention: failure,cancelled
+        status: ${{ job.status }}
+        fields: workflow,job,commit,repo,ref,author
+        text_success: ':shipit: `gintaa-analytics` is successfully deployed in cloud run - `dev`!'
+        text_failure: ':boom: `gintaa-analytics` failed to deploy in cloud run - `dev`!'
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # optional
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }} # required
+      if: always() # Pick up events even if the job fails or is canceled.
