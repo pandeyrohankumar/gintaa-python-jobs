@@ -5,7 +5,7 @@ regex==2022.10.31
 # nltk==3.7
 DateTime==4.9
 python-dateutil==2.8.2
-google-cloud-bigquery==3.4.1
+google-cloud-bigquery==3.27.0
 google-auth==2.16.0
 db-dtypes==1.0.5
 gspread==6.1.2
