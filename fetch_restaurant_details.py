@@ -6,7 +6,7 @@ import math
 
 sys.stdout.reconfigure(encoding='utf-8')
 
-API_KEY = 'AIzaSyBmBhttjcbmupBtWo76EngyN-OKK4W-HQQ'
+API_KEY = '*********'
 
 def search_restaurant_branches(restaurant_name, city='Bangalore'):
     base_url = "https://maps.googleapis.com/maps/api/place/textsearch/json"
