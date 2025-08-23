@@ -2,6 +2,6 @@ pymongo==4.3.3
 pandas==1.5.2
 psycopg2-binary==2.9.5
 regex==2022.10.31
-nltk==3.7
+nltk==3.9.1
 DateTime==4.9
 python-dateutil==2.8.2
