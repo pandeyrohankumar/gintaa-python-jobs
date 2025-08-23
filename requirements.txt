@@ -4,7 +4,7 @@ psycopg2-binary==2.9.5
 regex==2022.10.31
 # nltk==3.7
 DateTime==4.9
-python-dateutil==2.8.2
+python-dateutil==2.9.0.post0
 google-cloud-bigquery==3.4.1
 google-auth==2.16.0
 db-dtypes==1.0.5
